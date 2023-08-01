@@ -1,6 +1,6 @@
 import decimal
 from enum import Enum
-from typing import Union
+from typing import Union, List
 
 from .. import Contract
 from ...boc import Cell
@@ -38,29 +38,44 @@ class WalletContract(Contract):
         return cell
 
     def create_transfer_message(self,
-                                to_addr: str,
-                                amount: int,
-                                seqno: int,
+                                to_addr: str = None,
+                                amount: int = None,
+                                seqno: int = None,
                                 payload: Union[Cell, str, bytes, None] = None,
                                 send_mode=SendModeEnum.ignore_errors | SendModeEnum.pay_gas_separately,
-                                dummy_signature=False, state_init=None):
-        payload_cell = Cell()
-        if payload:
-            if isinstance(payload, str):
-                payload_cell.bits.write_uint(0, 32)
-                payload_cell.bits.write_string(payload)
-            elif isinstance(payload, Cell):
-                payload_cell = payload
-            else:
-                payload_cell.bits.write_bytes(payload)
+                                dummy_signature=False, state_init=None,
+                                recipients_list: List = None):
+        if recipients_list is None:
+            recipients_list = [{
+                'address': to_addr,
+                'amount': amount,
+                'payload': payload,
+                'state_init': state_init,
+                'send_mode': send_mode,
+            }]
 
-        order_header = Contract.create_internal_message_header(
-            Address(to_addr), decimal.Decimal(amount))
-        order = Contract.create_common_msg_info(
-            order_header, state_init, payload_cell)
+        if len(recipients_list) > 4:
+            raise Exception("Many recipients for this contract")
+
         signing_message = self.create_signing_message(seqno)
-        signing_message.bits.write_uint8(send_mode)
-        signing_message.refs.append(order)
+        for recipient in recipients_list:
+            payload_cell = Cell()
+            payload = recipient.get('payload')
+            if payload:
+                if isinstance(payload, str):
+                    payload_cell.bits.write_uint(0, 32)
+                    payload_cell.bits.write_string(payload)
+                elif isinstance(payload, Cell):
+                    payload_cell = payload
+                else:
+                    payload_cell.bits.write_bytes(payload)
+
+            order_header = Contract.create_internal_message_header(
+                Address(recipient['address']), decimal.Decimal(recipient['amount']))
+            order = Contract.create_common_msg_info(
+                order_header, recipient.get('state_init'), payload_cell)
+            signing_message.bits.write_uint8(recipient.get('send_mode', SendModeEnum.ignore_errors | SendModeEnum.pay_gas_separately))
+            signing_message.refs.append(order)
 
         return self.create_external_message(signing_message, seqno, dummy_signature)
 
