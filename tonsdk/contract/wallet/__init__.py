@@ -2,7 +2,7 @@ from enum import Enum
 from typing import List, Optional, Tuple
 
 from ._wallet_contract import SendModeEnum
-from ._wallet_contract import WalletContract
+from ._wallet_contract import WalletContract, WalletMessage
 from ._wallet_contract_v2 import WalletV2ContractR1, WalletV2ContractR2
 from ._wallet_contract_v3 import WalletV3ContractR1, WalletV3ContractR2
 from ._wallet_contract_v4 import WalletV4ContractR1, WalletV4ContractR2
@@ -82,6 +82,7 @@ __all__ = [
     'WalletV4ContractR1',
     'WalletV4ContractR2',
     'WalletContract',
+    'WalletMessage',
     'SendModeEnum',
     'WalletVersionEnum',
     'Wallets',

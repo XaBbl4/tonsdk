@@ -1,6 +1,7 @@
 import decimal
 from enum import Enum
-from typing import Union, List
+from typing import Union, List, Dict
+from dataclasses import dataclass
 
 from .. import Contract
 from ...boc import Cell
@@ -17,6 +18,35 @@ class SendModeEnum(int, Enum):
     def __str__(self) -> str:
         return super().__str__()
 
+@dataclass
+class WalletMessage():
+    address: str
+    amount: int
+    send_mode: SendModeEnum = SendModeEnum.ignore_errors | SendModeEnum.pay_gas_separately
+    payload: Union[Cell, str, bytes, None] = None
+    state_init: Union[Cell, None] = None
+
+    def to_dict(cls):
+        d = {
+            'address': cls.address,
+            'amount': cls.amount,
+            'send_mode': cls.send_mode,
+        }
+        if cls.payload is not None:
+            d['payload'] = cls.payload
+        if cls.state_init is not None:
+            d['state_init'] = cls.state_init
+        return d
+
+    @staticmethod
+    def from_dict(d: Dict):
+        return WalletMessage(
+            address=d.get('address'),
+            amount=d.get('amount'),
+            send_mode=d.get('send_mode', SendModeEnum.ignore_errors | SendModeEnum.pay_gas_separately),
+            payload=d.get('payload', None),
+            state_init=d.get('state_init', None),
+        )
 
 class WalletContract(Contract):
     def __init__(self, **kwargs):
@@ -44,23 +74,29 @@ class WalletContract(Contract):
                                 payload: Union[Cell, str, bytes, None] = None,
                                 send_mode=SendModeEnum.ignore_errors | SendModeEnum.pay_gas_separately,
                                 dummy_signature=False, state_init=None,
-                                recipients_list: List = None):
+                                recipients_list: Union[List[Union[Dict, WalletMessage]], WalletMessage] = None):
         if recipients_list is None:
-            recipients_list = [{
-                'address': to_addr,
-                'amount': amount,
-                'payload': payload,
-                'state_init': state_init,
-                'send_mode': send_mode,
-            }]
+            recipients_list = [
+                WalletMessage(
+                    address=to_addr,
+                    amount=amount,
+                    send_mode=send_mode,
+                    payload=payload,
+                    state_init=state_init,
+                ),
+            ]
+        elif isinstance(recipients_list, WalletMessage):
+            recipients_list = [recipients_list,]
 
         if len(recipients_list) > 4:
             raise Exception("Many recipients for this contract")
 
         signing_message = self.create_signing_message(seqno)
         for recipient in recipients_list:
+            if isinstance(recipient, dict):
+                recipient = WalletMessage.from_dict(recipient)
             payload_cell = Cell()
-            payload = recipient.get('payload')
+            payload = recipient.payload
             if payload:
                 if isinstance(payload, str):
                     payload_cell.bits.write_uint(0, 32)
@@ -71,10 +107,10 @@ class WalletContract(Contract):
                     payload_cell.bits.write_bytes(payload)
 
             order_header = Contract.create_internal_message_header(
-                Address(recipient['address']), decimal.Decimal(recipient['amount']))
+                Address(recipient.address), decimal.Decimal(recipient.amount))
             order = Contract.create_common_msg_info(
-                order_header, recipient.get('state_init'), payload_cell)
-            signing_message.bits.write_uint8(recipient.get('send_mode', SendModeEnum.ignore_errors | SendModeEnum.pay_gas_separately))
+                order_header, recipient.state_init, payload_cell)
+            signing_message.bits.write_uint8(recipient.send_mode)
             signing_message.refs.append(order)
 
         return self.create_external_message(signing_message, seqno, dummy_signature)
